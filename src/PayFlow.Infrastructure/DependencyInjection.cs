@@ -46,6 +46,10 @@ public static class DependencyInjection
         services.AddMediatR(cfg =>
             cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
 
+        services.AddHealthChecks()
+            .AddDbContextCheck<PaymentDbContext>()
+            .AddRedis(configuration.GetConnectionString("Redis")!);
+
         return services;
     }
 }

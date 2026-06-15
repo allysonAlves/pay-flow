@@ -1,5 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using PayFlow.API.Filters;
+using PayFlow.API.Requests;
 using PayFlow.Application.Features.Payments.Commands.CancelPayment;
 using PayFlow.Application.Features.Payments.Commands.CreatePayment;
 using PayFlow.Application.Features.Payments.Commands.Webhook;
@@ -20,8 +22,9 @@ public class PaymentsController : ControllerBase
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Create([FromBody] CreatePaymentCommand command, CancellationToken ct)
+    public async Task<IActionResult> Create([FromBody] CreatePaymentRequest request, CancellationToken ct)
     {
+        var command = new CreatePaymentCommand(request.CustomerId, request.MerchantId, request.Amount, request.Currency);
         var paymentId = await _mediator.Send(command, ct);
         return CreatedAtAction(nameof(GetById), new { id = paymentId }, new { paymentId });
     }
@@ -48,8 +51,10 @@ public class PaymentsController : ControllerBase
     }
 
     [HttpPost("webhook")]
+    [ServiceFilter(typeof(WebhookSignatureFilter))]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Webhook([FromBody] WebhookPayload payload, CancellationToken ct)
     {

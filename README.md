@@ -26,6 +26,8 @@ Projeto de estudo em .NET 8 para consolidar arquitetura de software backend na p
 | **Domain Events vs Integration Events** | Infrastructure | Domain Events = in-memory no agregado; Integration Events = serializados no Outbox para consumo posterior |
 | **Idempotência** | Infrastructure | Redis previne reprocessamento de eventos duplicados no `OutboxProcessor` |
 | **FluentValidation** | Application | Validators por Command; `ValidationBehavior` como MediatR pipeline intercepta antes dos handlers |
+| **API Key Auth** | `PayFlow.API/Middleware` | `ApiKeyMiddleware` valida header `X-Api-Key` com comparação constant-time em todos os endpoints |
+| **Webhook HMAC-SHA256** | `PayFlow.API/Filters` | `WebhookSignatureFilter` valida assinatura `X-Webhook-Signature` antes de processar callbacks do gateway |
 
 ---
 
@@ -237,14 +239,18 @@ pay-flow/
 │   │
 │   └── PayFlow.API/
 │       ├── Controllers/PaymentsController.cs
+│       ├── Filters/WebhookSignatureFilter.cs
+│       ├── Middleware/ApiKeyMiddleware.cs
 │       ├── Middleware/GlobalExceptionHandler.cs
+│       ├── Requests/CreatePaymentRequest.cs
 │       ├── Program.cs
 │       └── appsettings.json
 │
 ├── tests/
 │   ├── PayFlow.Domain.Tests/
 │   ├── PayFlow.Application.Tests/
-│   └── PayFlow.Infrastructure.Tests/
+│   ├── PayFlow.Infrastructure.Tests/
+│   └── PayFlow.API.Tests/
 │
 ├── docs/superpowers/specs/
 ├── docker-compose.yml
@@ -304,27 +310,34 @@ dotnet ef migrations add <NomeDaMigration> \
 ## Testando o Fluxo via curl
 
 ```bash
+API_KEY="dev-api-key-change-in-production"
+
 # 1. Criar pagamento
 curl -s -X POST http://localhost:5000/payments \
   -H "Content-Type: application/json" \
+  -H "X-Api-Key: $API_KEY" \
   -d '{"customerId":"3fa85f64-5717-4562-b3fc-2c963f66afa6","merchantId":"7c9e6679-7425-40de-944b-e07fc1f90ae7","amount":150.00,"currency":"BRL"}' | jq
 
 # 2. Consultar pagamento (substitua o ID)
-curl -s http://localhost:5000/payments/{id} | jq
+curl -s -H "X-Api-Key: $API_KEY" http://localhost:5000/payments/{id} | jq
 
 # 3. Aguardar ~10s para o OutboxProcessor processar, depois consultar novamente
 # Status deve estar Approved (amount < 10000) ou Failed (amount >= 10000)
 
 # 4. Cancelar pagamento (funciona em Pending ou Processing)
-curl -s -X POST http://localhost:5000/payments/{id}/cancel
+curl -s -X POST -H "X-Api-Key: $API_KEY" http://localhost:5000/payments/{id}/cancel
 
-# 5. Webhook simulado (aprovação manual)
+# 5. Webhook simulado com assinatura HMAC-SHA256
+BODY='{"paymentId":"{id}","success":true,"transactionId":"txn_test_001"}'
+SECRET="dev-webhook-secret-change-in-production"
+SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
 curl -s -X POST http://localhost:5000/payments/webhook \
   -H "Content-Type: application/json" \
-  -d '{"paymentId":"{id}","success":true,"transactionId":"txn_test_001"}'
+  -H "X-Webhook-Signature: $SIG" \
+  -d "$BODY"
 
 # 6. Listar pagamentos com filtro
-curl -s "http://localhost:5000/payments?status=Approved&page=1&pageSize=10" | jq
+curl -s -H "X-Api-Key: $API_KEY" "http://localhost:5000/payments?status=Approved&page=1&pageSize=10" | jq
 ```
 
 ---
@@ -353,7 +366,8 @@ Para integrar com um gateway real (ex: Stripe), implemente `IPaymentGateway` e t
 tests/
 ├── PayFlow.Domain.Tests/          # 13 testes
 ├── PayFlow.Application.Tests/     # 6 testes
-└── PayFlow.Infrastructure.Tests/  # 6 testes
+├── PayFlow.Infrastructure.Tests/  # 6 testes
+└── PayFlow.API.Tests/             # 8 testes (middleware e filter de segurança)
 ```
 
 **Domain.Tests** — testa o agregado `Payment` de forma isolada (sem dependências externas):
@@ -382,8 +396,7 @@ A estratégia de extrair `IOutboxStore` (interface `internal`) permite testar o 
 Este projeto foi desenvolvido como portfólio e demonstração de arquitetura. Para uma implantação real, os pontos abaixo precisariam ser endereçados:
 
 **Segurança**
-- **Autenticação/Autorização:** todos os endpoints são públicos. Em produção, autenticação JWT ou API keys seria obrigatória.
-- **Verificação HMAC no webhook:** o endpoint `/payments/webhook` aceita qualquer chamada. Gateways reais enviam uma assinatura HMAC no header — o handler deveria validá-la antes de processar.
+- **Autenticação implementada:** todos os endpoints exigem `X-Api-Key`; o webhook valida `X-Webhook-Signature` com HMAC-SHA256. Em produção, a chave viria de um secret manager, não do `appsettings.json`.
 - **HTTPS obrigatório:** `UseHttpsRedirection` está ativo. Em produção, desabilitar HTTP completamente ou forçar redirecionamento via reverse proxy (nginx/Caddy).
 
 **Observabilidade**

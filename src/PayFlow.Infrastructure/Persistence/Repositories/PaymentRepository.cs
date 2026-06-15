@@ -17,8 +17,5 @@ public class PaymentRepository : IPaymentRepository
         => await _context.Payments.AddAsync(payment, ct);
 
     public Task UpdateAsync(Payment payment, CancellationToken ct = default)
-    {
-        _context.Payments.Update(payment);
-        return Task.CompletedTask;
-    }
+        => Task.CompletedTask;
 }
