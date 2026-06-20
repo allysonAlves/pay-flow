@@ -1,6 +1,6 @@
 # PayFlow — Payment Processing API
 
-Projeto de estudo em .NET 8 para consolidar arquitetura de software backend na prática. Implementa um sistema de processamento de pagamentos aplicando DDD, Clean Architecture, CQRS, Outbox Pattern e Idempotência.
+API de processamento de pagamentos em .NET 8 demonstrando a aplicação de DDD, Clean Architecture, CQRS e Outbox Pattern em um domínio financeiro realista.
 
 ## Stack
 
